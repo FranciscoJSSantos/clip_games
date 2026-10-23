@@ -2,11 +2,11 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Upload, Film, Smartphone, Sliders, Scissors, Play, Pause, 
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Download, CheckCircle, 
-  AlertCircle, RefreshCw, Layers, Eye, Sparkles, Video,
-  Plus, Trash2, Crosshair, Compass, CircleDot, FolderOpen, Cpu
+  AlertCircle, RefreshCw, Layers, Eye, Video,
+  Plus, Trash2, Camera, Gamepad2, Shield, Settings2, SlidersHorizontal,
+  FolderOpen, Cpu, Grid3X3, Maximize2, Move
 } from 'lucide-react';
 import { extractVideoMetadata, renderVideoClientSide } from './services/videoRenderer';
-
 
 export default function App() {
   const [videoFile, setVideoFile] = useState(null);
@@ -14,6 +14,15 @@ export default function App() {
   const [uploadedData, setUploadedData] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // Arquitetura de Camadas: 'manual' (atual) ou 'auto' (futuro)
+  const [pipelineMode, setPipelineMode] = useState('manual');
+
+  // Modo Mobile: aba ativa na tela do celular
+  const [mobileTab, setMobileTab] = useState('preview'); // 'preview' | 'crop' | 'motion' | 'settings'
+
+  // Guia de Segurança de Redes Sociais (TikTok / Reels Safe Zone)
+  const [showSocialGuide, setShowSocialGuide] = useState(false);
 
   // Modos de layout: "split" (Cam + Gameplay), "single_crop" (Só Gameplay 9:16), "blur_fit" (Fit centralizado com Blur)
   const [layoutMode, setLayoutMode] = useState('split');
@@ -45,19 +54,16 @@ export default function App() {
   const [camHeightPercent, setCamHeightPercent] = useState(35);
   const [blurIntensity, setBlurIntensity] = useState(25);
   const [showDivider, setShowDivider] = useState(true);
-  const [bgStyle, setBgStyle] = useState('blur'); // 'blur' (ofuscado estilo Shorts) ou 'black' (preto sólido)
+  const [bgStyle, setBgStyle] = useState('blur'); // 'blur' ou 'black'
 
-  // Estado de renderização
-  const [renderJobId, setRenderJobId] = useState(null);
-  const [renderStatus, setRenderStatus] = useState(null); // 'queued', 'processing', 'completed', 'failed'
+  // Estado de renderização Client-Side
+  const [renderStatus, setRenderStatus] = useState(null); // 'processing', 'completed', 'failed'
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderLog, setRenderLog] = useState('');
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [renderError, setRenderError] = useState(null);
-  const [folderNotice, setFolderNotice] = useState(null);
 
-
-  // Tamanho do Preview do Celular: 'sm' (270px), 'md' (340px), 'lg' (410px)
+  // Tamanho do Preview do Celular: 'sm' (270px), 'md' (340px), 'lg' (400px)
   const [phoneSize, setPhoneSize] = useState('md');
 
   // Corte de Duração do Vídeo (Trim)
@@ -70,9 +76,8 @@ export default function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const stageRef = useRef(null);
-  const isDraggingRef = useRef(null); // 'cam' ou 'game'
+  const isDraggingRef = useRef(null);
   const dragStartRef = useRef({ x: 0, y: 0, boxX: 0, boxY: 0 });
-
 
   // Formatar segundos em 00:00.0
   const formatTime = (secs) => {
@@ -83,9 +88,8 @@ export default function App() {
     return `${m < 10 ? '0' : ''}${m}:${sStr}`;
   };
 
-  // Controlar play/pause sincronizado
+  // Controlar play/pause
   const togglePlay = () => {
-
     if (!videoRef.current) return;
     if (videoRef.current.paused) {
       videoRef.current.play();
@@ -96,87 +100,91 @@ export default function App() {
     }
   };
 
-  // Interpolação matemática entre pontos de câmera (Keyframes)
+  // Interpolação matemática entre keyframes
+  const getInterpolatedBox = useCallback((keyframes, baseBox, t) => {
+    if (!keyframes || keyframes.length === 0) return baseBox;
+    if (keyframes.length === 1) return { ...baseBox, x: keyframes[0].x, y: keyframes[0].y };
 
-  const getInterpolatedBox = useCallback((kfs, defaultBox, time) => {
-    if (!kfs || kfs.length === 0) return defaultBox;
-    if (kfs.length === 1) return { ...defaultBox, x: kfs[0].x, y: kfs[0].y };
-
-    const sorted = [...kfs].sort((a, b) => a.time - b.time);
-    if (time <= sorted[0].time) return { ...defaultBox, x: sorted[0].x, y: sorted[0].y };
-    if (time >= sorted[sorted.length - 1].time) {
+    const sorted = [...keyframes].sort((a, b) => a.time - b.time);
+    if (t <= sorted[0].time) return { ...baseBox, x: sorted[0].x, y: sorted[0].y };
+    if (t >= sorted[sorted.length - 1].time) {
       const last = sorted[sorted.length - 1];
-      return { ...defaultBox, x: last.x, y: last.y };
+      return { ...baseBox, x: last.x, y: last.y };
     }
 
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const a = sorted[i];
-      const b = sorted[i + 1];
-      if (time >= a.time && time <= b.time) {
-        const p = (time - a.time) / (b.time - a.time);
-        const x = a.x + (b.x - a.x) * p;
-        const y = a.y + (b.y - a.y) * p;
-        return { ...defaultBox, x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) };
-      }
-    }
-    return defaultBox;
+    let i = 0;
+    while (i < sorted.length - 1 && sorted[i + 1].time < t) i++;
+    const k0 = sorted[i];
+    const k1 = sorted[i + 1];
+    const alpha = (t - k0.time) / (k1.time - k0.time);
+    const ease = alpha * alpha * (3 - 2 * alpha); // Smoothstep
+
+    return {
+      ...baseBox,
+      x: Number((k0.x + (k1.x - k0.x) * ease).toFixed(1)),
+      y: Number((k0.y + (k1.y - k0.y) * ease).toFixed(1))
+    };
   }, []);
 
-  // Adicionar ou atualizar keyframe no segundo atual
+  // Adicionar ponto de câmera no segundo atual
   const handleAddKeyframe = () => {
-    const curTime = Number(currentTime.toFixed(2));
+    const curX = gameBox.x;
+    const curY = gameBox.y;
+    const t = Number(currentTime.toFixed(2));
+
     setGameKeyframes(prev => {
-      const filtered = prev.filter(k => Math.abs(k.time - curTime) > 0.25);
-      const updated = [...filtered, {
-        time: curTime,
-        x: gameBox.x,
-        y: gameBox.y,
-        width: gameBox.width,
-        height: gameBox.height
-      }].sort((a, b) => a.time - b.time);
-      return updated;
+      const filtered = prev.filter(k => Math.abs(k.time - t) > 0.15);
+      const updated = [...filtered, { time: t, x: curX, y: curY }];
+      return updated.sort((a, b) => a.time - b.time);
     });
   };
 
   const handleRemoveCurrentKeyframe = () => {
-    setGameKeyframes(prev => prev.filter(k => Math.abs(k.time - currentTime) > 0.35));
+    const t = currentTime;
+    setGameKeyframes(prev => prev.filter(k => Math.abs(k.time - t) > 0.35));
   };
 
   const handleClearAllKeyframes = () => {
-    setGameKeyframes([]);
+    if (confirm('Deseja remover todos os pontos dinâmicos de câmera?')) {
+      setGameKeyframes([]);
+    }
   };
 
-  const hasKeyframeAtCurrent = gameKeyframes.some(k => Math.abs(k.time - currentTime) <= 0.35);
+  const hasKeyframeAtCurrent = gameKeyframes.some(k => Math.abs(k.time - currentTime) < 0.35);
 
-  // Loop do Canvas: Renderiza O MESMO VÍDEO ao vivo a 60fps sem dessincronização
+  // Renderizador do Canvas ao Vivo (Preview 9:16)
   useEffect(() => {
     let animId;
     const renderCanvas = () => {
-      const canvas = canvasRef.current;
       const video = videoRef.current;
-
-      if (canvas && video && video.readyState >= 2) {
+      const canvas = canvasRef.current;
+      if (video && canvas && video.readyState >= 2) {
         const ctx = canvas.getContext('2d');
         const cw = canvas.width;
         const ch = canvas.height;
         const vw = video.videoWidth || 1920;
         const vh = video.videoHeight || 1080;
 
-        // 1. Camada de Fundo (Blur estilo Shorts ou Preto)
-        if (bgStyle === 'blur') {
-          ctx.filter = 'blur(22px) brightness(0.65)';
-          ctx.drawImage(video, 0, 0, cw, ch);
-          ctx.filter = 'none';
-        } else {
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, cw, ch);
+        ctx.fillStyle = '#0b0d13';
+        ctx.fillRect(0, 0, cw, ch);
+
+        // Fundo Blur
+        if (layoutMode === 'blur_fit' && bgStyle === 'blur') {
+          ctx.save();
+          ctx.filter = `blur(${blurIntensity}px) brightness(0.65)`;
+          const scale = Math.max(cw / vw, ch / vh);
+          const bgW = vw * scale;
+          const bgH = vh * scale;
+          const bgX = (cw - bgW) / 2;
+          const bgY = (ch - bgH) / 2;
+          ctx.drawImage(video, bgX, bgY, bgW, bgH);
+          ctx.restore();
         }
 
         const curGame = isDraggingRef.current === 'game' 
           ? gameBox 
           : getInterpolatedBox(gameKeyframes, gameBox, video.currentTime);
 
-        // Função que desenha recorte preservando 100% a proporção dos pixels (nunca estica)
         const drawPreserveAspect = (bX, bY, bW, bH, dx, dy, dw, dh) => {
           const sx = (bX / 100) * vw;
           const sy = (bY / 100) * vh;
@@ -211,53 +219,43 @@ export default function App() {
           const camH = ch * (camHeightPercent / 100);
           const gameH = ch - camH;
 
-          // Desenhar Facecam no topo sem esticar
           drawPreserveAspect(camBox.x, camBox.y, camBox.width, camBox.height, 0, 0, cw, camH);
 
-          // Linha divisória neon
           if (showDivider) {
-            ctx.fillStyle = '#6366f1';
+            ctx.fillStyle = '#4f46e5';
             ctx.fillRect(0, camH - 2, cw, 4);
           }
 
-          // Desenhar Gameplay na base sem esticar
           drawPreserveAspect(curGame.x, curGame.y, curGame.width, curGame.height, 0, camH, cw, gameH);
 
         } else if (layoutMode === 'blur_fit') {
-          // Layout LoL Shorts (Locke): Gameplay recortada e centralizada proporcionalmente com fundo blur/preto
           const gsx = (curGame.x / 100) * vw;
           const gsy = (curGame.y / 100) * vh;
           const gsw = Math.max(2, (curGame.width / 100) * vw);
           const gsh = Math.max(2, (curGame.height / 100) * vh);
 
-          // Escala para ocupar a largura do canvas mantendo proporção 1:1 dos pixels
           const fgW = cw;
           const fgH = cw * (gsh / gsw);
           const fgY = (ch - fgH) / 2;
 
           ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-          ctx.shadowBlur = 18;
+          ctx.shadowBlur = 16;
           ctx.drawImage(video, gsx, gsy, gsw, gsh, 0, fgY, fgW, fgH);
           ctx.shadowColor = 'transparent';
           ctx.shadowBlur = 0;
 
         } else {
-
-          // Single Crop (9:16 direto na Gameplay sem esticar)
           drawPreserveAspect(curGame.x, curGame.y, curGame.width, curGame.height, 0, 0, cw, ch);
         }
       }
       animId = requestAnimationFrame(renderCanvas);
     };
 
-
     animId = requestAnimationFrame(renderCanvas);
     return () => cancelAnimationFrame(animId);
-  }, [layoutMode, camEnabled, camBox, gameBox, gameKeyframes, camHeightPercent, showDivider, isPlaying, bgStyle, getInterpolatedBox]);
+  }, [layoutMode, camEnabled, camBox, gameBox, gameKeyframes, camHeightPercent, showDivider, isPlaying, bgStyle, blurIntensity, getInterpolatedBox]);
 
-
-
-  // Upload do arquivo (100% Client-Side)
+  // Upload do arquivo
   const handleFileUpload = async (file) => {
     if (!file) return;
     setIsUploading(true);
@@ -266,7 +264,6 @@ export default function App() {
       setVideoUrl(localBlob);
       setVideoFile(file);
 
-      // Extrai metadados instantaneamente via HTML5 Video element
       const meta = await extractVideoMetadata(file);
       setUploadedData({
         videoId: 'local-' + Date.now(),
@@ -284,13 +281,13 @@ export default function App() {
       }
     } catch (err) {
       console.error('Erro ao ler vídeo:', err);
-      alert('Não foi possível ler os metadados do vídeo selecionado.');
+      alert('Não foi possível ler o arquivo selecionado.');
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Carregar vídeo demo de teste (100% Client-Side da pasta public)
+  // Carregar vídeo demo
   const handleLoadDemo = async () => {
     setIsUploading(true);
     try {
@@ -312,13 +309,13 @@ export default function App() {
       }
     } catch (err) {
       console.error('Erro ao carregar demo:', err);
-      alert('Vídeo demo não encontrado na pasta pública.');
+      alert('Vídeo demo não encontrado.');
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Movimentação com as setinhas (D-Pad ou Teclado)
+  // Movimentação
   const moveBox = (dx, dy) => {
     const isCam = activeBoxTarget === 'cam';
     const target = isCam ? camBox : gameBox;
@@ -334,32 +331,16 @@ export default function App() {
     }));
   };
 
-  // Ajuste de tamanho (Zoom/Escala)
-  const resizeBox = (dw, dh) => {
-    const isCam = activeBoxTarget === 'cam';
-    const target = isCam ? camBox : gameBox;
-    const setTarget = isCam ? setCamBox : setGameBox;
-
-    const newW = Math.max(10, Math.min(100 - target.x, target.width + dw));
-    const newH = Math.max(10, Math.min(100 - target.y, target.height + dh));
-
-    setTarget(prev => ({
-      ...prev,
-      width: Number(newW.toFixed(1)),
-      height: Number(newH.toFixed(1))
-    }));
-  };
-
-  // Iniciar renderização FFmpeg 100% Client-Side (WebAssembly)
+  // Renderização Client-Side
   const handleStartRender = async () => {
     if (!uploadedData && !videoFile) {
-      alert('Por favor, envie um clipe primeiro.');
+      alert('Por favor, carregue um clipe primeiro.');
       return;
     }
 
     setRenderStatus('processing');
     setRenderProgress(5);
-    setRenderLog('Carregando motor FFmpeg WebAssembly...');
+    setRenderLog('Inicializando motor WebAssembly...');
     setRenderError(null);
     setDownloadUrl(null);
 
@@ -384,7 +365,7 @@ export default function App() {
         metadata: uploadedData?.metadata,
         onProgress: (pct) => {
           setRenderProgress(pct);
-          setRenderLog(`Renderizando clipe no navegador... ${pct}%`);
+          setRenderLog(`Renderizando clipe no dispositivo... ${pct}%`);
         },
         onLog: (msg) => {
           if (msg && typeof msg === 'string' && msg.includes('frame=')) {
@@ -399,13 +380,13 @@ export default function App() {
       setRenderProgress(100);
       setRenderLog('Concluído!');
     } catch (err) {
-      console.error('Erro na renderização Client-Side:', err);
+      console.error('Erro na renderização:', err);
       setRenderStatus('failed');
-      setRenderError(err.message || 'Erro durante a renderização no navegador.');
+      setRenderError(err.message || 'Erro durante a renderização.');
     }
   };
 
-  // Função de download direto e imediato
+  // Download imediato
   const handleDownloadVideo = (url) => {
     const targetUrl = url || downloadUrl;
     if (!targetUrl) return;
@@ -421,12 +402,12 @@ export default function App() {
     document.body.removeChild(a);
   };
 
-  // Preset Padrão LoL Shorts (45% largura, 100% altura, centralizado + blur)
+  // Preset LoL Shorts (45% x 100% centralizado + blur)
   const applyDefaultLolShorts = () => {
     setLayoutMode('blur_fit');
     setBgStyle('blur');
     setGameBox({
-      x: 27.5, // Centralizado: (100 - 45) / 2 = 27.5
+      x: 27.5,
       y: 0,
       width: 45,
       height: 100
@@ -434,34 +415,11 @@ export default function App() {
     setActiveBoxTarget('game');
   };
 
-  // Abrir / Notificar pasta de downloads
-  const handleOpenFolder = () => {
-    setFolderNotice("O vídeo é gerado diretamente na memória do seu navegador e salvo na sua pasta 'Downloads' ao clicar em Baixar MP4.");
-    setTimeout(() => setFolderNotice(null), 6000);
-  };
-
-
-  // Suporte a setas do teclado físico
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Ignorar se estiver digitando em um input
-      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
-      
-      if (e.key === 'ArrowUp') { e.preventDefault(); moveBox(0, -2); }
-      else if (e.key === 'ArrowDown') { e.preventDefault(); moveBox(0, 2); }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); moveBox(-2, 0); }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); moveBox(2, 0); }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeBoxTarget, camBox, gameBox]);
-
-  // Arraste do mouse na caixa de recorte
+  // Drag & drop no canvas original
   const handleMouseDown = (e, boxType) => {
     e.stopPropagation();
-    setActiveBoxTarget(boxType);
     isDraggingRef.current = boxType;
+    setActiveBoxTarget(boxType);
     const box = boxType === 'cam' ? camBox : gameBox;
     dragStartRef.current = {
       x: e.clientX,
@@ -473,18 +431,18 @@ export default function App() {
 
   const handleMouseMove = (e) => {
     if (!isDraggingRef.current || !stageRef.current) return;
-    const rect = stageRef.current.getBoundingClientRect();
-    const dx = ((e.clientX - dragStartRef.current.x) / rect.width) * 100;
-    const dy = ((e.clientY - dragStartRef.current.y) / rect.height) * 100;
+    const stageRect = stageRef.current.getBoundingClientRect();
+    const dx = ((e.clientX - dragStartRef.current.x) / stageRect.width) * 100;
+    const dy = ((e.clientY - dragStartRef.current.y) / stageRect.height) * 100;
 
     const isCam = isDraggingRef.current === 'cam';
-    const box = isCam ? camBox : gameBox;
-    const setBox = isCam ? setCamBox : setGameBox;
+    const target = isCam ? camBox : gameBox;
+    const setTarget = isCam ? setCamBox : setGameBox;
 
-    const newX = Math.max(0, Math.min(100 - box.width, dragStartRef.current.boxX + dx));
-    const newY = Math.max(0, Math.min(100 - box.height, dragStartRef.current.boxY + dy));
+    const newX = Math.max(0, Math.min(100 - target.width, dragStartRef.current.boxX + dx));
+    const newY = Math.max(0, Math.min(100 - target.height, dragStartRef.current.boxY + dy));
 
-    setBox(prev => ({
+    setTarget(prev => ({
       ...prev,
       x: Number(newX.toFixed(1)),
       y: Number(newY.toFixed(1))
@@ -497,48 +455,81 @@ export default function App() {
 
   return (
     <div onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
+      
+      {/* Header Studio */}
       <header className="app-header">
-        <div className="logo-container">
-          <div className="logo-badge">
-            <Video size={20} color="#fff" />
+        <div className="brand-wrapper">
+          <div className="brand-icon">
+            <Video size={16} />
           </div>
-          <span className="logo-title">ClipGames <span style={{ color: '#6366f1' }}>9:16</span></span>
-          <span className="logo-sub">LoL & Gameplay Formatter</span>
-          <span style={{ 
-            background: 'rgba(99, 102, 241, 0.12)', 
-            border: '1px solid rgba(99, 102, 241, 0.3)', 
-            color: '#a5b4fc', 
-            fontSize: '0.72rem', 
-            fontWeight: '600', 
-            padding: '3px 10px', 
-            borderRadius: '999px', 
-            display: 'inline-flex', 
-            alignItems: 'center', 
-            gap: '5px',
-            marginLeft: '8px'
-          }}>
-            <Cpu size={12} color="#818cf8" /> WebAssembly Wasm
-          </span>
+          <span className="brand-name">ClipGames Studio</span>
+          <span className="brand-badge">9:16 Workstation</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+
+        {/* Camadas do Editor */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'inline-flex', background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '2px' }}>
+            <button 
+              type="button" 
+              onClick={() => setPipelineMode('manual')}
+              style={{
+                background: pipelineMode === 'manual' ? 'var(--bg-surface-elevated)' : 'transparent',
+                border: pipelineMode === 'manual' ? '1px solid var(--border-medium)' : 'none',
+                color: pipelineMode === 'manual' ? '#fff' : 'var(--text-secondary)',
+                fontSize: '0.74rem',
+                fontWeight: '600',
+                padding: '4px 10px',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Enquadramento Manual
+            </button>
+            <button 
+              type="button"
+              onClick={() => alert('A camada de Recorte Automático com IA está em desenvolvimento e estará disponível na próxima atualização!')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-tertiary)',
+                fontSize: '0.74rem',
+                fontWeight: '600',
+                padding: '4px 10px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <span>Auto-Clip</span>
+              <span style={{ fontSize: '0.62rem', background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: '3px' }}>Em Breve</span>
+            </button>
+          </div>
+
           {uploadedData && (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span>
-              {uploadedData.originalName} ({uploadedData.metadata?.width}x{uploadedData.metadata?.height} - {uploadedData.metadata?.duration}s)
-            </div>
+            <button 
+              type="button"
+              onClick={() => {
+                setVideoUrl(null);
+                setUploadedData(null);
+              }}
+              className="btn-studio-secondary"
+              style={{ fontSize: '0.74rem', padding: '4px 10px', minHeight: '30px' }}
+            >
+              <RefreshCw size={13} /> Trocar Vídeo
+            </button>
           )}
         </div>
       </header>
-
 
       {/* Main Content */}
       <main className="main-layout" style={{ flex: 1 }}>
         {!videoUrl ? (
           /* Tela Inicial de Upload */
-          <div style={{ maxWidth: '780px', margin: '40px auto 0 auto' }}>
+          <div className="upload-hero">
             <div 
-              className="upload-card"
+              className="upload-dropzone"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -555,101 +546,126 @@ export default function App() {
                   if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
                 }} 
               />
-              <div className="upload-icon-wrapper">
-                <Upload size={36} />
+              <div className="upload-icon-circle">
+                <Upload size={28} />
               </div>
-              <h2 style={{ fontSize: '1.4rem', fontWeight: '800', marginBottom: '8px' }}>
-                Arraste seu clipe de LoL ou Gameplay (16:9)
+              <h2 style={{ fontSize: '1.25rem', fontWeight: '700', marginBottom: '8px' }}>
+                Selecione ou arraste seu clipe 16:9
               </h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', maxWidth: '480px', margin: '0 auto 20px auto' }}>
-                Formatamos e enquadramos sua play automaticamente para TikTok, Reels e Shorts (9:16) com alta fidelidade e sem perda de qualidade.
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', maxWidth: '460px', margin: '0 auto 20px auto' }}>
+                Formate e converta gameplays para formato vertical 9:16 (Shorts, Reels, TikTok) com enquadramento de Facecam e Pan & Scan dinâmico.
               </p>
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                <button className="btn-primary" style={{ display: 'inline-flex', width: 'auto', padding: '12px 28px' }}>
-                  <Film size={18} />
-                  Selecionar Vídeo do Computador
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button type="button" className="btn-studio-primary" style={{ width: 'auto' }}>
+                  <Film size={16} /> Selecionar Arquivo de Vídeo
                 </button>
                 <button 
                   type="button"
-                  className="button-tab" 
-                  style={{ padding: '12px 20px', background: 'rgba(255, 255, 255, 0.08)' }}
+                  className="btn-studio-secondary" 
                   onClick={(e) => {
                     e.stopPropagation();
                     handleLoadDemo();
                   }}
                 >
-                  <Sparkles size={16} color="var(--accent-cyan)" />
-                  Testar com Clipe Exemplo
+                  Carregar Vídeo Demo (LoL)
                 </button>
               </div>
             </div>
 
-            <div style={{ marginTop: '28px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', textAlign: 'center' }}>
-              <div className="panel" style={{ padding: '16px' }}>
-                <Layers size={22} color="var(--primary)" style={{ margin: '0 auto 8px auto' }} />
-                <h4 style={{ fontSize: '0.9rem', marginBottom: '4px' }}>Split com Facecam</h4>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Câmera no topo e a ação do jogo no centro</p>
+            <div style={{ marginTop: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', textAlign: 'left' }}>
+              <div className="studio-panel" style={{ padding: '16px' }}>
+                <div style={{ color: 'var(--cam-color)', marginBottom: '6px' }}><Camera size={20} /></div>
+                <div style={{ fontSize: '0.85rem', fontWeight: '600', marginBottom: '4px' }}>Split com Facecam</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Câmera posicionada no topo com corte exato da gameplay embaixo.</div>
               </div>
-              <div className="panel" style={{ padding: '16px' }}>
-                <Scissors size={22} color="var(--accent-cyan)" style={{ margin: '0 auto 8px auto' }} />
-                <h4 style={{ fontSize: '0.9rem', marginBottom: '4px' }}>Só Gameplay (Full)</h4>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Recorte 9:16 direto quando o clipe não tem câmera</p>
+              <div className="studio-panel" style={{ padding: '16px' }}>
+                <div style={{ color: 'var(--game-color)', marginBottom: '6px' }}><Gamepad2 size={20} /></div>
+                <div style={{ fontSize: '0.85rem', fontWeight: '600', marginBottom: '4px' }}>Preset Ação Central + Blur</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Enquadra kills e habilidades no centro com fundo desfocado atrás.</div>
               </div>
-              <div className="panel" style={{ padding: '16px' }}>
-                <Sparkles size={22} color="var(--accent-emerald)" style={{ margin: '0 auto 8px auto' }} />
-                <h4 style={{ fontSize: '0.9rem', marginBottom: '4px' }}>Fundo Desfocado</h4>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Vídeo 16:9 completo com blur elegante atrás</p>
+              <div className="studio-panel" style={{ padding: '16px' }}>
+                <div style={{ color: '#a5b4fc', marginBottom: '6px' }}><Move size={20} /></div>
+                <div style={{ fontSize: '0.85rem', fontWeight: '600', marginBottom: '4px' }}>Câmera Dinâmica (Pan & Scan)</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Acompanha o movimento do campeão ou do cursor pela tela.</div>
               </div>
             </div>
           </div>
         ) : (
-          /* Workspace do Editor */
-          <div className="editor-workspace">
-            {/* Lado Esquerdo: Vídeo Original + Caixas de Ajuste Interativas */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div className="panel">
-                <div className="panel-header">
-                  <div className="panel-title">
-                    <Film size={18} color="var(--primary)" />
-                    <span>Vídeo Original (16:9) - Ajuste as Áreas de Enquadramento</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button 
-                      onClick={() => {
-                        setVideoUrl(null);
-                        setUploadedData(null);
-                      }} 
-                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <RefreshCw size={14} /> Trocar Vídeo
-                    </button>
-                  </div>
-                </div>
+          /* Workspace Studio */
+          <div>
+            {/* Barra de Abas Mobile (Aparece apenas em telas pequenas < 1024px) */}
+            <div className="mobile-tabs-bar">
+              <button 
+                type="button" 
+                className={`mobile-tab-btn ${mobileTab === 'preview' ? 'active' : ''}`}
+                onClick={() => setMobileTab('preview')}
+              >
+                <Smartphone size={15} /> Preview 9:16
+              </button>
+              <button 
+                type="button" 
+                className={`mobile-tab-btn ${mobileTab === 'crop' ? 'active' : ''}`}
+                onClick={() => setMobileTab('crop')}
+              >
+                <Grid3X3 size={15} /> Enquadramento
+              </button>
+              <button 
+                type="button" 
+                className={`mobile-tab-btn ${mobileTab === 'motion' ? 'active' : ''}`}
+                onClick={() => setMobileTab('motion')}
+              >
+                <Scissors size={15} /> Timeline
+              </button>
+              <button 
+                type="button" 
+                className={`mobile-tab-btn ${mobileTab === 'settings' ? 'active' : ''}`}
+                onClick={() => setMobileTab('settings')}
+              >
+                <Settings2 size={15} /> Layout
+              </button>
+            </div>
 
-                {/* Palco do Vídeo com Caixas Sobrepostas */}
-                <div className="video-stage-container" ref={stageRef}>
-                  <video 
-                    ref={videoRef}
-                    src={videoUrl} 
-                    playsInline 
-                    loop 
-                    muted 
-                    onClick={togglePlay}
-                    onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
-                    onLoadedMetadata={(e) => {
-                      if (e.target.duration) {
-                        setVideoDuration(e.target.duration);
-                        if (!trimEnd || trimEnd === 0) setTrimEnd(e.target.duration);
-                      }
-                    }}
-                  />
+            <div className="studio-grid">
+              
+              {/* Coluna Esquerda: Stage 16:9 + Controles de Enquadramento + Timeline */}
+              <div style={{ 
+                display: (mobileTab === 'crop' || mobileTab === 'motion' || window.innerWidth >= 1024) ? 'flex' : 'none', 
+                flexDirection: 'column', 
+                gap: '16px' 
+              }}>
+                
+                {/* Stage 16:9 de Recorte */}
+                <div className="studio-panel" style={{ display: (mobileTab === 'crop' || window.innerWidth >= 1024) ? 'block' : 'none' }}>
+                  <div className="panel-header-clean">
+                    <span className="panel-title-clean">
+                      <Film size={15} color="var(--game-color)" /> Vídeo de Origem (16:9)
+                    </span>
+                    <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>
+                      Arraste as caixas para enquadrar
+                    </span>
+                  </div>
 
-                  {/* Camada das Caixas de Recorte */}
-                  <div className="crop-overlay-layer">
-                    {/* Caixa 1: Câmera (só se modo split e camEnabled) */}
+                  <div className="stage-container" ref={stageRef}>
+                    <video 
+                      ref={videoRef}
+                      src={videoUrl} 
+                      playsInline 
+                      loop 
+                      muted 
+                      onClick={togglePlay}
+                      onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+                      onLoadedMetadata={(e) => {
+                        if (e.target.duration) {
+                          setVideoDuration(e.target.duration);
+                          if (!trimEnd || trimEnd === 0) setTrimEnd(e.target.duration);
+                        }
+                      }}
+                    />
+
+                    {/* Caixa 1: Câmera */}
                     {layoutMode === 'split' && camEnabled && (
                       <div 
-                        className={`crop-box box-cam ${activeBoxTarget === 'cam' ? 'selected' : ''}`}
+                        className={`stage-crop-box box-cam ${activeBoxTarget === 'cam' ? 'active-selection' : ''}`}
                         style={{
                           left: `${camBox.x}%`,
                           top: `${camBox.y}%`,
@@ -658,18 +674,18 @@ export default function App() {
                         }}
                         onMouseDown={(e) => handleMouseDown(e, 'cam')}
                       >
-                        <span className="crop-box-badge">📷 Facecam</span>
+                        <span className="box-tag">Facecam</span>
                       </div>
                     )}
 
-                    {/* Caixa 2: Gameplay (Sempre ajustável e interpolada por keyframes) */}
+                    {/* Caixa 2: Gameplay */}
                     {(() => {
                       const curDisplayGame = (isDraggingRef.current === 'game' || gameKeyframes.length === 0)
                         ? gameBox
                         : getInterpolatedBox(gameKeyframes, gameBox, currentTime);
                       return (
                         <div 
-                          className={`crop-box box-game ${activeBoxTarget === 'game' ? 'selected' : ''}`}
+                          className={`stage-crop-box box-game ${activeBoxTarget === 'game' ? 'active-selection' : ''}`}
                           style={{
                             left: `${curDisplayGame.x}%`,
                             top: `${curDisplayGame.y}%`,
@@ -678,27 +694,22 @@ export default function App() {
                           }}
                           onMouseDown={(e) => handleMouseDown(e, 'game')}
                         >
-                          <span className="crop-box-badge">
-                            🎮 Gameplay {gameKeyframes.length > 0 ? '💠 Animada' : ''}
-                          </span>
+                          <span className="box-tag">Gameplay</span>
                         </div>
                       );
                     })()}
                   </div>
-                </div>
 
-
-
-                {/* Barra de controle de Playback e Navegação na Timeline */}
-                <div className="video-control-bar" style={{ flexWrap: 'wrap' }}>
-                  <button 
-                    onClick={togglePlay} 
-                    style={{ background: 'var(--primary)', border: 'none', color: '#fff', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
-                  >
-                    {isPlaying ? <Pause size={18} /> : <Play size={18} style={{ marginLeft: '2px' }} />}
-                  </button>
-
-                  <div style={{ flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {/* Player & Scrubber */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+                    <button 
+                      type="button"
+                      onClick={togglePlay}
+                      className="btn-studio-secondary"
+                      style={{ minHeight: '36px', padding: '6px 12px' }}
+                    >
+                      {isPlaying ? <Pause size={15} /> : <Play size={15} />}
+                    </button>
                     <input 
                       type="range"
                       min="0"
@@ -710,49 +721,107 @@ export default function App() {
                         setCurrentTime(t);
                         if (videoRef.current) videoRef.current.currentTime = t;
                       }}
-                      className="slider-input"
-                      style={{ accentColor: 'var(--primary)', height: '6px' }}
+                      className="timeline-slider"
+                      style={{ flex: 1, minWidth: '160px' }}
                     />
-                  </div>
-
-                  <span style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--text-main)', minWidth: '110px', textAlign: 'right' }}>
-                    {formatTime(currentTime)} / {formatTime(videoDuration)}
-                  </span>
-                </div>
-
-                {/* Painel Dedicado de Corte do Vídeo (Trim Início e Fim) */}
-                <div className="trim-card">
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', fontSize: '0.9rem', color: '#fff' }}>
-                      <Scissors size={16} color="var(--accent-cyan)" />
-                      <span>Cortar Duração do Clipe</span>
-                    </div>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--accent-cyan)', background: 'rgba(6, 182, 212, 0.1)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(6, 182, 212, 0.25)' }}>
-                      Duração final: {(trimEnd > trimStart ? trimEnd - trimStart : (videoDuration || 0)).toFixed(1)}s
+                    <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                      {formatTime(currentTime)} / {formatTime(videoDuration)}
                     </span>
                   </div>
+                </div>
 
-                  {/* Barra Visual da Faixa Cortada */}
-                  <div className="trim-timeline-track">
-                    {videoDuration > 0 && (
-                      <div 
-                        className="trim-timeline-highlight"
-                        style={{
-                          left: `${(trimStart / videoDuration) * 100}%`,
-                          width: `${Math.max(1, ((trimEnd - trimStart) / videoDuration) * 100)}%`
-                        }}
-                      />
+                {/* Painel de Posicionamento Fino & D-Pad */}
+                <div className="studio-panel" style={{ display: (mobileTab === 'crop' || window.innerWidth >= 1024) ? 'block' : 'none' }}>
+                  <div className="panel-header-clean">
+                    <span className="panel-title-clean">
+                      <Sliders size={15} color="var(--cam-color)" /> Ajuste da Posição
+                    </span>
+                    {layoutMode === 'split' && camEnabled && (
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button 
+                          type="button"
+                          className={`btn-studio-secondary ${activeBoxTarget === 'game' ? 'active' : ''}`}
+                          onClick={() => setActiveBoxTarget('game')}
+                          style={{ fontSize: '0.74rem', padding: '4px 8px', minHeight: '30px' }}
+                        >
+                          Gameplay
+                        </button>
+                        <button 
+                          type="button"
+                          className={`btn-studio-secondary ${activeBoxTarget === 'cam' ? 'active' : ''}`}
+                          onClick={() => setActiveBoxTarget('cam')}
+                          style={{ fontSize: '0.74rem', padding: '4px 8px', minHeight: '30px' }}
+                        >
+                          Facecam
+                        </button>
+                      </div>
                     )}
                   </div>
 
-                  {/* Botões de marcação rápida e sliders */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-card)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Ponto de Início:</span>
-                        <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: '700', color: 'var(--primary)' }}>{formatTime(trimStart)}</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '16px', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        Tamanho do recorte ({activeBoxTarget === 'cam' ? camBox.width : gameBox.width}% larg × {activeBoxTarget === 'cam' ? camBox.height : gameBox.height}% alt):
                       </div>
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div>
+                          <input 
+                            type="range" 
+                            min="15" 
+                            max="100" 
+                            value={activeBoxTarget === 'cam' ? camBox.width : gameBox.width}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              if (activeBoxTarget === 'cam') setCamBox(p => ({ ...p, width: val }));
+                              else setGameBox(p => ({ ...p, width: val }));
+                            }}
+                            className="timeline-slider" 
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          <button type="button" className="btn-studio-secondary" style={{ fontSize: '0.72rem', padding: '4px 8px', minHeight: '30px' }} onClick={applyDefaultLolShorts}>
+                            Preset LoL Central
+                          </button>
+                          <button type="button" className="btn-studio-secondary" style={{ fontSize: '0.72rem', padding: '4px 8px', minHeight: '30px' }} onClick={() => setGameBox({ x: 14, y: 12, width: 72, height: 86 })}>
+                            Preset Ação + HUD
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* D-Pad com botões de 44px ideais para toque */}
+                    <div className="touch-control-grid">
+                      <div></div>
+                      <button type="button" className="touch-btn" onClick={() => moveBox(0, -2)} title="Cima"><ArrowUp size={16} /></button>
+                      <div></div>
+                      <button type="button" className="touch-btn" onClick={() => moveBox(-2, 0)} title="Esquerda"><ArrowLeft size={16} /></button>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>POS</div>
+                      <button type="button" className="touch-btn" onClick={() => moveBox(2, 0)} title="Direita"><ArrowRight size={16} /></button>
+                      <div></div>
+                      <button type="button" className="touch-btn" onClick={() => moveBox(0, 2)} title="Baixo"><ArrowDown size={16} /></button>
+                      <div></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Painel de Trim & Keyframes (Timeline) */}
+                <div className="studio-panel" style={{ display: (mobileTab === 'motion' || window.innerWidth >= 1024) ? 'block' : 'none' }}>
+                  <div className="panel-header-clean">
+                    <span className="panel-title-clean">
+                      <Scissors size={15} color="#10b981" /> Corte de Duração (Trim)
+                    </span>
+                    <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#10b981' }}>
+                      {(trimEnd > trimStart ? trimEnd - trimStart : (videoDuration || 0)).toFixed(1)}s de clipe
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                    <div style={{ background: 'var(--bg-app)', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                        <span>Início</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{formatTime(trimStart)}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
                         <input 
                           type="range"
                           min="0"
@@ -760,25 +829,20 @@ export default function App() {
                           step="0.1"
                           value={trimStart}
                           onChange={(e) => setTrimStart(Number(e.target.value))}
-                          className="slider-input"
+                          className="timeline-slider"
                         />
-                        <button 
-                          type="button"
-                          className="trim-btn"
-                          title="Definir início no tempo atual do player"
-                          onClick={() => setTrimStart(currentTime)}
-                        >
-                          Definir
+                        <button type="button" className="btn-studio-secondary" style={{ fontSize: '0.7rem', padding: '4px 8px', minHeight: '30px' }} onClick={() => setTrimStart(currentTime)}>
+                          Fixar
                         </button>
                       </div>
                     </div>
 
-                    <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-card)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Ponto Final:</span>
-                        <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: '700', color: 'var(--accent-cyan)' }}>{formatTime(trimEnd || videoDuration)}</span>
+                    <div style={{ background: 'var(--bg-app)', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                        <span>Fim</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{formatTime(trimEnd || videoDuration)}</span>
                       </div>
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '6px' }}>
                         <input 
                           type="range"
                           min={Math.min(videoDuration, trimStart + 0.5)}
@@ -786,435 +850,251 @@ export default function App() {
                           step="0.1"
                           value={trimEnd || videoDuration}
                           onChange={(e) => setTrimEnd(Number(e.target.value))}
-                          className="slider-input"
+                          className="timeline-slider"
                         />
-                        <button 
-                          type="button"
-                          className="trim-btn"
-                          title="Definir fim no tempo atual do player"
-                          onClick={() => setTrimEnd(currentTime)}
-                        >
-                          Definir
+                        <button type="button" className="btn-studio-secondary" style={{ fontSize: '0.7rem', padding: '4px 8px', minHeight: '30px' }} onClick={() => setTrimEnd(currentTime)}>
+                          Fixar
                         </button>
                       </div>
                     </div>
                   </div>
+
+                  {/* Keyframes de Movimento */}
+                  <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>Pontos de Pan & Scan</span>
+                      <button 
+                        type="button" 
+                        className="btn-studio-secondary" 
+                        style={{ fontSize: '0.74rem', padding: '4px 10px', minHeight: '30px' }}
+                        onClick={handleAddKeyframe}
+                      >
+                        <Plus size={13} /> Salvar Posição em {formatTime(currentTime)}
+                      </button>
+                    </div>
+
+                    {gameKeyframes.length > 0 ? (
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {gameKeyframes.map((kf, i) => (
+                          <button 
+                            key={i} 
+                            type="button" 
+                            className="btn-studio-secondary"
+                            style={{ 
+                              fontSize: '0.72rem', 
+                              padding: '3px 8px', 
+                              minHeight: '26px',
+                              borderColor: Math.abs(currentTime - kf.time) < 0.35 ? '#10b981' : 'var(--border-subtle)' 
+                            }}
+                            onClick={() => {
+                              if (videoRef.current) {
+                                videoRef.current.currentTime = kf.time;
+                                setCurrentTime(kf.time);
+                              }
+                            }}
+                          >
+                            Ponto {i + 1} ({formatTime(kf.time)})
+                          </button>
+                        ))}
+                        <button type="button" className="btn-studio-secondary" style={{ fontSize: '0.72rem', padding: '3px 8px', minHeight: '26px', color: '#f43f5e' }} onClick={handleClearAllKeyframes}>
+                          Limpar
+                        </button>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)' }}>Nenhum ponto dinâmico salvo. O enquadramento permanecerá fixo.</span>
+                    )}
+                  </div>
                 </div>
+
               </div>
 
+              {/* Coluna Direita: Preview Vertical 9:16 + Layouts + Exportar */}
+              <div style={{ 
+                display: (mobileTab === 'preview' || mobileTab === 'settings' || window.innerWidth >= 1024) ? 'flex' : 'none', 
+                flexDirection: 'column', 
+                gap: '16px' 
+              }}>
 
-              {/* Controles de Ajuste Fino e Setinhas */}
-              <div className="panel">
-                <div className="panel-header">
-                  <div className="panel-title">
-                    <Sliders size={18} color="var(--accent-cyan)" />
-                    <span>Controles de Posição e Setinhas</span>
-                  </div>
-                  {/* Seletor de qual caixa está controlando */}
-                  {layoutMode === 'split' && camEnabled && (
+                <div className="studio-panel preview-card">
+                  <div className="panel-header-clean" style={{ width: '100%' }}>
+                    <span className="panel-title-clean">
+                      <Smartphone size={15} color="#38bdf8" /> Preview 9:16
+                    </span>
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <button 
-                        className={`button-tab ${activeBoxTarget === 'game' ? 'active' : ''}`}
-                        onClick={() => setActiveBoxTarget('game')}
-                        style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                        type="button"
+                        className={`btn-studio-secondary ${showSocialGuide ? 'active' : ''}`}
+                        onClick={() => setShowSocialGuide(!showSocialGuide)}
+                        style={{ fontSize: '0.72rem', padding: '3px 8px', minHeight: '28px' }}
+                        title="Ativar contorno de botões do TikTok / Reels para checar área segura"
                       >
-                        🎮 Gameplay
+                        <Shield size={12} /> Guia Redes
                       </button>
                       <button 
-                        className={`button-tab ${activeBoxTarget === 'cam' ? 'active' : ''}`}
-                        onClick={() => setActiveBoxTarget('cam')}
-                        style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+                        type="button"
+                        className={`btn-studio-secondary ${phoneSize === 'sm' ? 'active' : ''}`}
+                        onClick={() => setPhoneSize('sm')}
+                        style={{ fontSize: '0.72rem', padding: '3px 6px', minHeight: '28px' }}
                       >
-                        📷 Facecam
+                        P
+                      </button>
+                      <button 
+                        type="button"
+                        className={`btn-studio-secondary ${phoneSize === 'md' ? 'active' : ''}`}
+                        onClick={() => setPhoneSize('md')}
+                        style={{ fontSize: '0.72rem', padding: '3px 6px', minHeight: '28px' }}
+                      >
+                        M
                       </button>
                     </div>
-                  )}
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: '20px', alignItems: 'center' }}>
-                  {/* Presets Rápidos e Sliders */}
-                  <div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                      Presets rápidos para <strong>{activeBoxTarget === 'cam' ? 'Câmera' : 'Gameplay'}</strong>:
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
-                      {activeBoxTarget === 'cam' ? (
-                        <>
-                          <button className="button-tab" style={{ padding: '6px 10px', fontSize: '0.75rem' }} onClick={() => setCamBox({ x: 4, y: 5, width: 25, height: 32 })}>Canto Sup. Esquerdo</button>
-                          <button className="button-tab" style={{ padding: '6px 10px', fontSize: '0.75rem' }} onClick={() => setCamBox({ x: 71, y: 5, width: 25, height: 32 })}>Canto Sup. Direito</button>
-                          <button className="button-tab" style={{ padding: '6px 10px', fontSize: '0.75rem' }} onClick={() => setCamBox({ x: 71, y: 62, width: 25, height: 32 })}>Canto Inf. Direito</button>
-                        </>
-                      ) : (
-                        <>
-                          <button 
-                            type="button"
-                            className="button-tab" 
-                            style={{ 
-                              padding: '6px 12px', 
-                              fontSize: '0.78rem', 
-                              background: 'rgba(99, 102, 241, 0.2)', 
-                              borderColor: 'var(--primary)', 
-                              color: '#fff',
-                              fontWeight: '700',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '5px'
-                            }} 
-                            onClick={applyDefaultLolShorts}
-                            title="Aplica 45% largura, 100% altura, centralizado e modelo LoL Shorts com Blur"
-                          >
-                            <Sparkles size={14} color="#818cf8" /> ⭐ Padrão LoL Shorts (45% x 100% + Blur)
-                          </button>
-                          <button className="button-tab" style={{ padding: '6px 10px', fontSize: '0.75rem', borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)' }} onClick={() => setGameBox({ x: 14, y: 12, width: 72, height: 86 })}>🔥 Estilo Locke (Ação + Skills)</button>
-                          <button className="button-tab" style={{ padding: '6px 10px', fontSize: '0.75rem' }} onClick={() => setGameBox({ x: 22, y: 10, width: 56, height: 80 })}>Centro Padrão</button>
-                          <button className="button-tab" style={{ padding: '6px 10px', fontSize: '0.75rem' }} onClick={() => setGameBox({ x: 0, y: 0, width: 100, height: 100 })}>16:9 Completo</button>
-                        </>
-                      )}
-                    </div>
-
-
-                    {/* Sliders de Zoom/Tamanho da Caixa */}
-                    <div className="slider-group">
-                      <div className="slider-label">
-                        <span>Largura da Área ({activeBoxTarget === 'cam' ? camBox.width : gameBox.width}%)</span>
-                      </div>
-                      <input 
-                        type="range" 
-                        min="15" 
-                        max="100" 
-                        value={activeBoxTarget === 'cam' ? camBox.width : gameBox.width}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          if (activeBoxTarget === 'cam') setCamBox(p => ({ ...p, width: val }));
-                          else setGameBox(p => ({ ...p, width: val }));
-                        }}
-                        className="slider-input" 
-                      />
-                    </div>
-
-                    <div className="slider-group">
-                      <div className="slider-label">
-                        <span>Altura da Área ({activeBoxTarget === 'cam' ? camBox.height : gameBox.height}%)</span>
-                      </div>
-                      <input 
-                        type="range" 
-                        min="15" 
-                        max="100" 
-                        value={activeBoxTarget === 'cam' ? camBox.height : gameBox.height}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          if (activeBoxTarget === 'cam') setCamBox(p => ({ ...p, height: val }));
-                          else setGameBox(p => ({ ...p, height: val }));
-                        }}
-                        className="slider-input" 
-                      />
-                    </div>
                   </div>
 
-                  {/* D-PAD com Botões de Setinha para Posicionamento Exato */}
-                  <div style={{ textAlign: 'center', background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-card)' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: '600' }}>
-                      Setinhas de Ajuste
-                    </div>
-                    <div className="dpad-container">
-                      <div></div>
-                      <button className="dpad-btn" title="Mover para cima" onClick={() => moveBox(0, -2)}>
-                        <ArrowUp size={16} />
-                      </button>
-                      <div></div>
-
-                      <button className="dpad-btn" title="Mover para esquerda" onClick={() => moveBox(-2, 0)}>
-                        <ArrowLeft size={16} />
-                      </button>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: 'var(--text-dim)' }}>
-                        POS
-                      </div>
-                      <button className="dpad-btn" title="Mover para direita" onClick={() => moveBox(2, 0)}>
-                        <ArrowRight size={16} />
-                      </button>
-
-                      <div></div>
-                      <button className="dpad-btn" title="Mover para baixo" onClick={() => moveBox(0, 2)}>
-                        <ArrowDown size={16} />
-                      </button>
-                      <div></div>
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
-                      Passo de 2%
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Painel de Câmera Dinâmica (Keyframes / Seguir Jogada) */}
-              <div className="panel">
-                <div className="panel-header">
-                  <div className="panel-title">
-                    <Compass size={18} color="var(--accent-emerald)" />
-                    <span>Câmera Dinâmica (Mover e Acompanhar a Play)</span>
-                  </div>
-                  {gameKeyframes.length > 0 && (
-                    <span style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                      {gameKeyframes.length} ponto(s) salvo(s)
-                    </span>
-                  )}
-                </div>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
-                  Quer que a câmera vire ou acompanhe a jogada? Posicione a caixa onde a ação está e salve pontos ao longo do tempo. O enquadramento se moverá suavemente entre cada ponto!
-                </p>
-
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <button 
-                    type="button"
-                    className="btn-primary" 
-                    style={{ width: 'auto', padding: '8px 16px', fontSize: '0.82rem', background: 'linear-gradient(135deg, #10b981, #059669)' }}
-                    onClick={handleAddKeyframe}
+                  {/* Viewport do Celular 9:16 */}
+                  <div 
+                    className="phone-viewport" 
+                    style={{ 
+                      width: phoneSize === 'sm' ? '240px' : phoneSize === 'md' ? '290px' : '340px',
+                      maxWidth: '100%'
+                    }}
                   >
-                    <Plus size={16} /> Salvar Posição aos {formatTime(currentTime)}
-                  </button>
-                  {hasKeyframeAtCurrent && (
-                    <button 
-                      type="button"
-                      className="button-tab" 
-                      style={{ padding: '8px 14px', fontSize: '0.8rem', borderColor: '#f43f5e', color: '#f43f5e' }}
-                      onClick={handleRemoveCurrentKeyframe}
-                    >
-                      <Trash2 size={14} /> Remover Deste Ponto
-                    </button>
-                  )}
-                  {gameKeyframes.length > 0 && (
-                    <button 
-                      type="button"
-                      className="button-tab" 
-                      style={{ padding: '8px 14px', fontSize: '0.8rem' }}
-                      onClick={handleClearAllKeyframes}
-                    >
-                      Limpar Todos
-                    </button>
-                  )}
-                </div>
-
-                {/* Marcadores Clicáveis com os Pontos Salvos */}
-                {gameKeyframes.length > 0 && (
-                  <div style={{ marginTop: '14px', paddingTop: '10px', borderTop: '1px solid var(--border-card)' }}>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '6px' }}>
-                      Pontos salvos no clipe (clique para ir direto ao momento):
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {gameKeyframes.map((kf, i) => (
-                        <button 
-                          key={i}
-                          type="button"
-                          className="button-tab"
-                          style={{ 
-                            padding: '4px 10px', 
-                            fontSize: '0.75rem', 
-                            borderColor: Math.abs(currentTime - kf.time) < 0.35 ? 'var(--accent-emerald)' : 'var(--border-card)',
-                            background: Math.abs(currentTime - kf.time) < 0.35 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.04)'
-                          }}
-                          onClick={() => {
-                            if (videoRef.current) {
-                              videoRef.current.currentTime = kf.time;
-                              setCurrentTime(kf.time);
-                            }
-                          }}
-                        >
-                          💠 {formatTime(kf.time)} (X: {kf.x}%)
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-
-            {/* Lado Direito: Preview Vertical 9:16 (Simulador de Celular) */}
-            <div className="panel" style={{ position: 'sticky', top: '84px' }}>
-              <div className="panel-header">
-                <div className="panel-title">
-                  <Smartphone size={18} color="#f43f5e" />
-                  <span>Preview 9:16</span>
-                </div>
-                {/* Seletor de Tamanho do Celular */}
-                <div className="phone-size-toggle">
-                  <button 
-                    type="button"
-                    className={`phone-size-btn ${phoneSize === 'sm' ? 'active' : ''}`}
-                    onClick={() => setPhoneSize('sm')}
-                    title="Celular Normal (270px)"
-                  >
-                    Normal
-                  </button>
-                  <button 
-                    type="button"
-                    className={`phone-size-btn ${phoneSize === 'md' ? 'active' : ''}`}
-                    onClick={() => setPhoneSize('md')}
-                    title="Celular Médio (340px)"
-                  >
-                    Médio
-                  </button>
-                  <button 
-                    type="button"
-                    className={`phone-size-btn ${phoneSize === 'lg' ? 'active' : ''}`}
-                    onClick={() => setPhoneSize('lg')}
-                    title="Celular Maior (410px)"
-                  >
-                    Grande
-                  </button>
-                </div>
-              </div>
-
-              {/* Seletores de Layout */}
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '600' }}>
-                  Modelo de Enquadramento:
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                  <button 
-                    className={`button-tab ${layoutMode === 'split' ? 'active' : ''}`}
-                    onClick={() => setLayoutMode('split')}
-                  >
-                    <Layers size={14} /> Split (Cam+Game)
-                  </button>
-                  <button 
-                    className={`button-tab ${layoutMode === 'single_crop' ? 'active' : ''}`}
-                    onClick={() => setLayoutMode('single_crop')}
-                  >
-                    <Scissors size={14} /> Só Vídeo (Full)
-                  </button>
-                </div>
-                <button 
-                  className={`button-tab ${layoutMode === 'blur_fit' ? 'active' : ''}`}
-                  style={{ width: '100%', borderColor: layoutMode === 'blur_fit' ? 'var(--accent-cyan)' : 'var(--border-card)', marginBottom: '8px' }}
-                  onClick={() => setLayoutMode('blur_fit')}
-                >
-                  <Sparkles size={14} color="var(--accent-cyan)" /> 🔥 LoL Shorts (Ação + Skills + Fundo Blur)
-                </button>
-                <button 
-                  type="button"
-                  className="button-tab"
-                  style={{ width: '100%', background: 'rgba(99, 102, 241, 0.1)', borderColor: 'rgba(99, 102, 241, 0.5)', fontSize: '0.78rem', color: '#c7d2fe' }}
-                  onClick={applyDefaultLolShorts}
-                  title="Aplica 45% largura, 100% altura e Fundo Blur de uma vez só"
-                >
-                  ⭐ Redefinir para Padrão (45% x 100% + Blur)
-                </button>
-              </div>
-
-
-              {/* Opção de Ligar/Desligar Facecam (conforme solicitado pelo usuário!) */}
-              {layoutMode === 'split' && (
-                <div className="toggle-row">
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: '600' }}>Tem Facecam no clipe?</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      {camEnabled ? 'Cam posicionada no topo' : 'Sem câmera: exibe só a gameplay centralizada'}
-                    </span>
-                  </div>
-                  <label className="toggle-switch">
-                    <input 
-                      type="checkbox" 
-                      checked={camEnabled} 
-                      onChange={(e) => setCamEnabled(e.target.checked)} 
-                    />
-                    <span className="toggle-slider"></span>
-                  </label>
-                </div>
-              )}
-
-              {/* Slider de Altura da Câmera no modo Split */}
-              {layoutMode === 'split' && camEnabled && (
-                <div className="slider-group" style={{ marginBottom: '14px' }}>
-                  <div className="slider-label">
-                    <span>Espaço da Câmera no Topo</span>
-                    <span>{camHeightPercent}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="20" 
-                    max="50" 
-                    value={camHeightPercent}
-                    onChange={(e) => setCamHeightPercent(Number(e.target.value))}
-                    className="slider-input" 
-                  />
-                </div>
-              )}
-
-              {/* Estilo de Fundo nos Espaços Restantes */}
-              <div style={{ marginBottom: '14px' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: '600' }}>
-                  Fundo nos Espaços Restantes:
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <button 
-                    type="button"
-                    className={`button-tab ${bgStyle === 'blur' ? 'active' : ''}`}
-                    onClick={() => setBgStyle('blur')}
-                    style={{ fontSize: '0.76rem', padding: '8px 10px' }}
-                  >
-                    <Sparkles size={14} color="var(--accent-cyan)" /> Fundo Ofuscado (Shorts)
-                  </button>
-                  <button 
-                    type="button"
-                    className={`button-tab ${bgStyle === 'black' ? 'active' : ''}`}
-                    onClick={() => setBgStyle('black')}
-                    style={{ fontSize: '0.76rem', padding: '8px 10px' }}
-                  >
-                    ⬛ Fundo Preto
-                  </button>
-                </div>
-              </div>
-
-              {/* Celular Mockup com Preview ao Vivo */}
-              <div className="phone-mockup-wrapper">
-                <div className={`phone-mockup phone-size-${phoneSize}`}>
-                  <div className="phone-notch"></div>
-                  <div className="phone-content">
-                    {/* Canvas renderizando O MESMO VÍDEO ao vivo a 60fps sem delay */}
                     <canvas 
                       ref={canvasRef} 
                       width={720} 
                       height={1280} 
                       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} 
                     />
+
+                    {/* Guia Visual de Área Segura TikTok/Shorts */}
+                    {showSocialGuide && (
+                      <div className="social-overlay-guide">
+                        <div style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.7)', background: 'rgba(0,0,0,0.5)', padding: '2px 6px', borderRadius: '3px', alignSelf: 'flex-start' }}>
+                          Área Segura (Safe Zone)
+                        </div>
+                        <div className="social-sidebar-mock">
+                          <div className="social-btn-mock" />
+                          <div className="social-btn-mock" />
+                          <div className="social-btn-mock" />
+                        </div>
+                        <div className="social-caption-mock" />
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
 
+                {/* Configurações de Layout & Composição */}
+                <div className="studio-panel" style={{ display: (mobileTab === 'settings' || window.innerWidth >= 1024) ? 'block' : 'none' }}>
+                  <div className="panel-header-clean">
+                    <span className="panel-title-clean">
+                      <Layers size={15} color="var(--action-primary)" /> Composição Vertical
+                    </span>
+                  </div>
 
-              {/* Botão de Renderização */}
-              <div style={{ marginTop: '20px' }}>
-                <button 
-                  className="btn-primary" 
-                  onClick={handleStartRender}
-                  disabled={renderStatus === 'queued' || renderStatus === 'processing'}
-                >
-                  <Download size={18} />
-                  Renderizar Clipe 9:16 (Full HD)
-                </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '12px' }}>
+                    <button 
+                      type="button" 
+                      className={`btn-studio-secondary ${layoutMode === 'split' ? 'active' : ''}`}
+                      onClick={() => setLayoutMode('split')}
+                      style={{ fontSize: '0.74rem', padding: '8px 4px' }}
+                    >
+                      Split (Cam)
+                    </button>
+                    <button 
+                      type="button" 
+                      className={`btn-studio-secondary ${layoutMode === 'blur_fit' ? 'active' : ''}`}
+                      onClick={() => setLayoutMode('blur_fit')}
+                      style={{ fontSize: '0.74rem', padding: '8px 4px' }}
+                    >
+                      Fit + Blur
+                    </button>
+                    <button 
+                      type="button" 
+                      className={`btn-studio-secondary ${layoutMode === 'single_crop' ? 'active' : ''}`}
+                      onClick={() => setLayoutMode('single_crop')}
+                      style={{ fontSize: '0.74rem', padding: '8px 4px' }}
+                    >
+                      9:16 Direto
+                    </button>
+                  </div>
 
-                {/* Card de Download Persistente */}
-                {downloadUrl && (
-                  <div style={{ marginTop: '14px', padding: '14px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: '700', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                      <CheckCircle size={16} /> Último Clipe Renderizado Pronto!
+                  {layoutMode === 'split' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Facecam ativa</span>
+                        <input 
+                          type="checkbox" 
+                          checked={camEnabled} 
+                          onChange={(e) => setCamEnabled(e.target.checked)} 
+                        />
+                      </div>
+                      {camEnabled && (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-secondary)', marginBottom: '2px' }}>
+                            <span>Espaço da Câmera</span>
+                            <span style={{ fontFamily: 'var(--font-mono)' }}>{camHeightPercent}%</span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="20" 
+                            max="50" 
+                            value={camHeightPercent}
+                            onChange={(e) => setCamHeightPercent(Number(e.target.value))}
+                            className="timeline-slider" 
+                          />
+                        </div>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  )}
+
+                  {layoutMode === 'blur_fit' && (
+                    <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
                       <button 
                         type="button"
-                        className="btn-primary" 
-                        style={{ background: 'linear-gradient(135deg, #10b981, #059669)', padding: '10px 14px', fontSize: '0.85rem', width: 'auto' }}
-                        onClick={() => handleDownloadVideo(downloadUrl)}
+                        className={`btn-studio-secondary ${bgStyle === 'blur' ? 'active' : ''}`}
+                        onClick={() => setBgStyle('blur')}
+                        style={{ flex: 1, fontSize: '0.74rem', minHeight: '32px' }}
                       >
-                        <Download size={16} /> Baixar MP4
+                        Fundo Desfocado
+                      </button>
+                      <button 
+                        type="button"
+                        className={`btn-studio-secondary ${bgStyle === 'black' ? 'active' : ''}`}
+                        onClick={() => setBgStyle('black')}
+                        style={{ flex: 1, fontSize: '0.74rem', minHeight: '32px' }}
+                      >
+                        Fundo Preto
                       </button>
                     </div>
-                    <div style={{ marginTop: '8px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      ⚡ Renderizado 100% no navegador via <code style={{ color: '#10b981' }}>FFmpeg WebAssembly</code>
+                  )}
+
+                  {/* Botão de Renderização */}
+                  <button 
+                    type="button" 
+                    className="btn-studio-primary" 
+                    onClick={handleStartRender}
+                    disabled={renderStatus === 'processing'}
+                    style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', marginTop: '6px' }}
+                  >
+                    <Download size={16} /> Renderizar Clipe 9:16 (Full HD)
+                  </button>
+
+                  {/* Card de Download Rápido */}
+                  {downloadUrl && (
+                    <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.78rem', color: '#10b981', fontWeight: '600', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                        <CheckCircle size={14} /> Clipe pronto para salvar
+                      </div>
+                      <button 
+                        type="button" 
+                        className="btn-studio-primary" 
+                        style={{ background: '#10b981', minHeight: '36px', fontSize: '0.8rem' }}
+                        onClick={() => handleDownloadVideo(downloadUrl)}
+                      >
+                        <Download size={14} /> Baixar Vídeo MP4
+                      </button>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+
               </div>
 
             </div>
@@ -1222,91 +1102,76 @@ export default function App() {
         )}
       </main>
 
-      {/* Modal de Progresso e Download */}
+      {/* Modal de Progresso e Conclusão */}
       {renderStatus && (
-        <div className="modal-overlay">
-          <div className="modal-content">
+        <div className="studio-modal-backdrop">
+          <div className="studio-modal-box">
             {renderStatus === 'completed' ? (
               <>
-                <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', color: '#10b981' }}>
-                  <CheckCircle size={36} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto' }}>
+                  <CheckCircle size={28} />
                 </div>
-                <h3 style={{ fontSize: '1.3rem', fontWeight: '800', marginBottom: '8px' }}>
-                  Clipe 9:16 Pronto para Download!
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '700', marginBottom: '6px' }}>
+                  Clipe Renderizado com Sucesso
                 </h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '20px' }}>
-                  O vídeo foi renderizado em 1080x1920 (9:16 vertical), codificado em H.264 pronto para postar no TikTok, Reels ou Shorts sem distorção.
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: '16px' }}>
+                  Vídeo vertical em 1080x1920 codificado em H.264 pronto para redes sociais.
                 </p>
 
-                {/* Player do resultado */}
                 {downloadUrl && (
-                  <div style={{ width: '180px', height: '320px', margin: '0 auto 20px auto', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', background: '#000' }}>
+                  <div style={{ width: '160px', height: '284px', margin: '0 auto 16px auto', borderRadius: '12px', overflow: 'hidden', background: '#000', border: '1px solid var(--border-medium)' }}>
                     <video src={downloadUrl} controls playsInline autoPlay loop style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '14px' }}>
-                  <button 
-                    type="button"
-                    onClick={() => handleDownloadVideo(downloadUrl)}
-                    className="btn-primary" 
-                    style={{ width: 'auto', padding: '12px 20px' }}
-                  >
-                    <Download size={18} /> Baixar Vídeo MP4
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                  <button type="button" className="btn-studio-primary" style={{ width: 'auto' }} onClick={() => handleDownloadVideo(downloadUrl)}>
+                    <Download size={16} /> Baixar MP4
                   </button>
-                  <button 
-                    type="button"
-                    className="button-tab" 
-                    style={{ padding: '12px 16px' }} 
-                    onClick={() => {
-                      setRenderStatus(null);
-                    }}
-                  >
+                  <button type="button" className="btn-studio-secondary" onClick={() => setRenderStatus(null)}>
                     Fechar
                   </button>
-                </div>
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', background: 'rgba(255, 255, 255, 0.04)', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-card)' }}>
-                  🔒 <strong>Zero Upload:</strong> O vídeo foi processado 100% no seu dispositivo via WebAssembly.
                 </div>
               </>
             ) : renderStatus === 'failed' ? (
               <>
-                <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(244, 63, 94, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', color: '#f43f5e' }}>
-                  <AlertCircle size={36} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(244, 63, 94, 0.15)', color: '#f43f5e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto' }}>
+                  <AlertCircle size={28} />
                 </div>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: '800', marginBottom: '8px' }}>
-                  Erro ao Processar o Vídeo
+                <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '6px' }}>
+                  Erro na Renderização
                 </h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '20px' }}>
-                  {renderError || 'Ocorreu um problema ao compilar com o FFmpeg.'}
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: '16px' }}>
+                  {renderError || 'Ocorreu uma falha durante o processamento do vídeo.'}
                 </p>
-                <button className="btn-primary" onClick={() => setRenderStatus(null)}>
-                  Voltar e Tentar Novamente
+                <button type="button" className="btn-studio-primary" onClick={() => setRenderStatus(null)}>
+                  Tentar Novamente
                 </button>
               </>
             ) : (
               <>
-                <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', color: 'var(--primary)' }}>
-                  <RefreshCw size={32} className="spin-animation" style={{ animation: 'spin 1.5s linear infinite' }} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px auto' }}>
+                  <RefreshCw size={24} style={{ animation: 'spin 1.2s linear infinite' }} />
                 </div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: '800', marginBottom: '8px' }}>
-                  Renderizando seu Clipe em 9:16...
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '700', marginBottom: '6px' }}>
+                  Renderizando Clipe 9:16
                 </h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
-                  Processando enquadramentos e filtros via FFmpeg WebAssembly na sua máquina.
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                  Processamento direto no seu navegador via WebAssembly.
                 </p>
-                <div className="progress-bar-bg">
-                  <div className="progress-bar-fill" style={{ width: `${renderProgress}%` }}></div>
+                <div className="progress-bar-minimal">
+                  <div className="progress-bar-minimal-fill" style={{ width: `${renderProgress}%` }} />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  <span>{renderLog || 'Processando vídeo...'}</span>
-                  <span style={{ fontWeight: '700', color: '#818cf8' }}>{renderProgress}%</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  <span>{renderLog || 'Processando frames...'}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: '600', color: '#38bdf8' }}>{renderProgress}%</span>
                 </div>
               </>
             )}
           </div>
         </div>
       )}
+
     </div>
   );
 }
