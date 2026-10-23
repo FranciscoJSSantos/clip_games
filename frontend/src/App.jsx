@@ -58,9 +58,9 @@ export default function App() {
   const [folderNotice, setFolderNotice] = useState(null);
 
 
-  // Modos Mobile: switcher do player e aba ativa de controles
-  const [mobileViewMode, setMobileViewMode] = useState('result'); // 'result' (9:16) ou 'editor' (16:9)
-  const [mobileActiveTab, setMobileActiveTab] = useState('crop'); // 'crop' | 'trim' | 'motion' | 'export'
+  // Modos Mobile: aba ativa de controles e visualizacao
+  const [mobileViewMode, setMobileViewMode] = useState('editor'); // 'editor' (16:9) ou 'result' (9:16)
+  const [mobileActiveTab, setMobileActiveTab] = useState('crop'); // 'crop' | 'trim' | 'motion' | 'preview'
 
   // Tamanho do Preview do Celular: 'sm' (270px), 'md' (340px), 'lg' (410px)
 
@@ -544,27 +544,17 @@ export default function App() {
           </div>
           <span className="logo-title">ClipGames <span style={{ color: '#6366f1' }}>9:16</span></span>
           <span className="logo-sub">LoL & Gameplay Formatter</span>
-          <span style={{ 
-            background: 'rgba(99, 102, 241, 0.12)', 
-            border: '1px solid rgba(99, 102, 241, 0.3)', 
-            color: '#a5b4fc', 
-            fontSize: '0.72rem', 
-            fontWeight: '600', 
-            padding: '3px 10px', 
-            borderRadius: '999px', 
-            display: 'inline-flex', 
-            alignItems: 'center', 
-            gap: '5px',
-            marginLeft: '8px'
-          }}>
+          <span className="badge-wasm">
             <Cpu size={12} color="#818cf8" /> WebAssembly Wasm
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div className="header-meta">
           {uploadedData && (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span>
-              {uploadedData.originalName} ({uploadedData.metadata?.width}x{uploadedData.metadata?.height} - {uploadedData.metadata?.duration}s)
+            <div className="header-meta-pill" title={`${uploadedData.originalName} (${uploadedData.metadata?.width}x${uploadedData.metadata?.height} - ${uploadedData.metadata?.duration}s)`}>
+              <span className="header-meta-dot"></span>
+              <span className="header-meta-filename">{uploadedData.originalName}</span>
+              <span className="header-meta-details">({uploadedData.metadata?.width}x{uploadedData.metadata?.height} - {uploadedData.metadata?.duration}s)</span>
+              <span className="header-meta-duration-mobile">{uploadedData.metadata?.duration}s</span>
             </div>
           )}
         </div>
@@ -644,53 +634,39 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* Top Switcher Mobile: Alternar entre Ajuste 16:9 e Celular 9:16 */}
-            <div className="mobile-switcher-bar">
-              <button 
-                type="button"
-                className={`mobile-tab-btn ${mobileViewMode === 'editor' ? 'active' : ''}`}
-                onClick={() => setMobileViewMode('editor')}
-              >
-                <Film size={15} /> Ajustar Caixas (16:9)
-              </button>
-              <button 
-                type="button"
-                className={`mobile-tab-btn ${mobileViewMode === 'result' ? 'active' : ''}`}
-                onClick={() => setMobileViewMode('result')}
-              >
-                <Smartphone size={15} /> Ver Resultado (9:16)
-              </button>
-            </div>
-
-            {/* Abas Rápidas Mobile: Ferramentas estilo CapCut */}
-            <div className="mobile-tabs-nav">
+            {/* Barra Única de Navegação Mobile (Estilo CapCut) */}
+            <div className="mobile-studio-tabs">
               <button 
                 type="button"
                 className={`mobile-tab-btn ${mobileActiveTab === 'crop' ? 'active' : ''}`}
                 onClick={() => { setMobileActiveTab('crop'); setMobileViewMode('editor'); }}
               >
-                <Sliders size={14} /> Enquadrar
+                <Sliders size={16} />
+                <span>Enquadrar</span>
               </button>
               <button 
                 type="button"
                 className={`mobile-tab-btn ${mobileActiveTab === 'trim' ? 'active' : ''}`}
                 onClick={() => { setMobileActiveTab('trim'); setMobileViewMode('editor'); }}
               >
-                <Scissors size={14} /> Cortar Tempo
+                <Scissors size={16} />
+                <span>Cortar Tempo</span>
               </button>
               <button 
                 type="button"
                 className={`mobile-tab-btn ${mobileActiveTab === 'motion' ? 'active' : ''}`}
                 onClick={() => { setMobileActiveTab('motion'); setMobileViewMode('editor'); }}
               >
-                <Compass size={14} /> Movimento
+                <Compass size={16} />
+                <span>Movimento</span>
               </button>
               <button 
                 type="button"
-                className={`mobile-tab-btn ${mobileActiveTab === 'export' ? 'active' : ''}`}
-                onClick={() => { setMobileActiveTab('export'); setMobileViewMode('result'); }}
+                className={`mobile-tab-btn ${mobileActiveTab === 'preview' ? 'active' : ''}`}
+                onClick={() => { setMobileActiveTab('preview'); setMobileViewMode('result'); }}
               >
-                <Download size={14} /> Exportar
+                <Smartphone size={16} />
+                <span>Prévia 9:16</span>
               </button>
             </div>
 
