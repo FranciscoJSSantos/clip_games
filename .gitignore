@@ -1,0 +1,24 @@
+# Ambientes Virtuais e Dependências
+venv/
+.venv/
+env/
+**/node_modules/
+**/dist/
+.vercel
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos temporários de vídeo gerados localmente no backend
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/renders/*
+!backend/renders/.gitkeep
+
+# IDEs e Sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

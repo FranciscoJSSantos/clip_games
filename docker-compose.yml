@@ -1,0 +1,11 @@
+services:
+  clip-games:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/renders:/app/backend/renders
+    environment:
+      - PORT=8000
+    restart: unless-stopped
