@@ -390,14 +390,15 @@ export default function App() {
         metadata: uploadedData?.metadata,
         onProgress: (pct) => {
           setRenderProgress(pct);
-          setRenderLog(`Renderizando clipe no navegador... ${pct}%`);
-        },
-        onLog: (msg) => {
-          if (msg && typeof msg === 'string' && msg.includes('frame=')) {
-            const framePart = msg.split('fps=')[0].trim();
-            setRenderLog(`FFmpeg: ${framePart}`);
+          if (pct < 30) {
+            setRenderLog('Cortando e enquadrando o clipe...');
+          } else if (pct < 85) {
+            setRenderLog('Formatando para vídeo vertical...');
+          } else {
+            setRenderLog('Finalizando arquivo...');
           }
-        }
+        },
+        onLog: () => {}
       });
 
       setDownloadUrl(result.downloadUrl);
@@ -543,10 +544,7 @@ export default function App() {
             <Video size={20} color="#fff" />
           </div>
           <span className="logo-title">ClipGames <span style={{ color: '#6366f1' }}>9:16</span></span>
-          <span className="logo-sub">LoL & Gameplay Formatter</span>
-          <span className="badge-wasm">
-            <Cpu size={12} color="#818cf8" /> WebAssembly Wasm
-          </span>
+          <span className="logo-sub">Shorts & TikTok</span>
         </div>
         <div className="header-meta">
           {uploadedData && (
@@ -633,47 +631,46 @@ export default function App() {
 
           </div>
         ) : (
-          <>
-            {/* Barra Única de Navegação Mobile (Estilo CapCut) */}
-            <div className="mobile-studio-tabs">
-              <button 
-                type="button"
-                className={`mobile-tab-btn ${mobileActiveTab === 'crop' ? 'active' : ''}`}
-                onClick={() => { setMobileActiveTab('crop'); setMobileViewMode('editor'); }}
-              >
-                <Sliders size={16} />
-                <span>Enquadrar</span>
-              </button>
-              <button 
-                type="button"
-                className={`mobile-tab-btn ${mobileActiveTab === 'trim' ? 'active' : ''}`}
-                onClick={() => { setMobileActiveTab('trim'); setMobileViewMode('editor'); }}
-              >
-                <Scissors size={16} />
-                <span>Cortar Tempo</span>
-              </button>
-              <button 
-                type="button"
-                className={`mobile-tab-btn ${mobileActiveTab === 'motion' ? 'active' : ''}`}
-                onClick={() => { setMobileActiveTab('motion'); setMobileViewMode('editor'); }}
-              >
-                <Compass size={16} />
-                <span>Movimento</span>
-              </button>
-              <button 
-                type="button"
-                className={`mobile-tab-btn ${mobileActiveTab === 'preview' ? 'active' : ''}`}
-                onClick={() => { setMobileActiveTab('preview'); setMobileViewMode('result'); }}
-              >
-                <Smartphone size={16} />
-                <span>Prévia 9:16</span>
-              </button>
-            </div>
+          /* Workspace do Editor */
+          <div className="editor-workspace">
+              {/* Barra de Navegação do Estúdio Móvel (order: 2 no mobile, display: none no desktop) */}
+              <div className="mobile-studio-tabs">
+                <button 
+                  type="button"
+                  className={`mobile-tab-btn ${mobileActiveTab === 'crop' ? 'active' : ''}`}
+                  onClick={() => setMobileActiveTab('crop')}
+                >
+                  <Sliders size={16} />
+                  <span>Enquadrar</span>
+                </button>
+                <button 
+                  type="button"
+                  className={`mobile-tab-btn ${mobileActiveTab === 'trim' ? 'active' : ''}`}
+                  onClick={() => setMobileActiveTab('trim')}
+                >
+                  <Scissors size={16} />
+                  <span>Cortar</span>
+                </button>
+                <button 
+                  type="button"
+                  className={`mobile-tab-btn ${mobileActiveTab === 'motion' ? 'active' : ''}`}
+                  onClick={() => setMobileActiveTab('motion')}
+                >
+                  <Compass size={16} />
+                  <span>Movimento</span>
+                </button>
+                <button 
+                  type="button"
+                  className={`mobile-tab-btn ${mobileActiveTab === 'style' ? 'active' : ''}`}
+                  onClick={() => setMobileActiveTab('style')}
+                >
+                  <Layers size={16} />
+                  <span>Modelos</span>
+                </button>
+              </div>
 
-            {/* Workspace do Editor */}
-            <div className="editor-workspace">
-              {/* Lado Esquerdo: Vídeo Original + Caixas de Ajuste Interativas */}
-              <div className={`editor-left-col ${mobileViewMode !== 'editor' ? 'mobile-hide' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Lado Esquerdo: Vídeo Original + Caixas de Ajuste Interativas (order: 3 no mobile) */}
+              <div className={`editor-left-col ${mobileActiveTab === 'style' ? 'mobile-hide' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="panel">
                 <div className="panel-header">
                   <div className="panel-title">
@@ -1100,14 +1097,14 @@ export default function App() {
             </div>
 
 
-            {/* Lado Direito: Preview Vertical 9:16 (Simulador de Celular) */}
-            <div className={`panel ${mobileViewMode !== 'result' ? 'mobile-hide' : ''}`} style={{ position: 'sticky', top: '84px' }}>
+            {/* Lado Direito / Topo no Mobile: Preview Vertical 9:16 */}
+            <div className="panel editor-preview-col" style={{ position: 'sticky', top: '84px' }}>
               <div className="panel-header">
                 <div className="panel-title">
                   <Smartphone size={18} color="#f43f5e" />
-                  <span>Preview 9:16</span>
+                  <span>Prévia 9:16</span>
                 </div>
-                {/* Seletor de Tamanho do Celular */}
+                {/* Seletor de Tamanho do Celular (Desktop) */}
                 <div className="phone-size-toggle">
                   <button 
                     type="button"
@@ -1136,109 +1133,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Seletores de Layout */}
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '600' }}>
-                  Modelo de Enquadramento:
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                  <button 
-                    className={`button-tab ${layoutMode === 'split' ? 'active' : ''}`}
-                    onClick={() => setLayoutMode('split')}
-                  >
-                    <Layers size={14} /> Split (Cam+Game)
-                  </button>
-                  <button 
-                    className={`button-tab ${layoutMode === 'single_crop' ? 'active' : ''}`}
-                    onClick={() => setLayoutMode('single_crop')}
-                  >
-                    <Scissors size={14} /> Só Vídeo (Full)
-                  </button>
-                </div>
-                <button 
-                  className={`button-tab ${layoutMode === 'blur_fit' ? 'active' : ''}`}
-                  style={{ width: '100%', borderColor: layoutMode === 'blur_fit' ? 'var(--accent-cyan)' : 'var(--border-card)', marginBottom: '8px' }}
-                  onClick={() => setLayoutMode('blur_fit')}
-                >
-                  <Layers size={14} color="var(--accent-cyan)" /> LoL Shorts (Ação + HUD + Fundo Blur)
-                </button>
-                <button 
-                  type="button"
-                  className="button-tab"
-                  style={{ width: '100%', background: 'rgba(79, 70, 229, 0.1)', borderColor: 'rgba(79, 70, 229, 0.4)', fontSize: '0.78rem', color: '#c7d2fe' }}
-                  onClick={applyDefaultLolShorts}
-                  title="Aplica 45% largura, 100% altura e Fundo Blur de uma vez só"
-                >
-                  Restaurar Padrão Shorts (45% × 100% + Blur)
-                </button>
-              </div>
-
-
-              {/* Opção de Ligar/Desligar Facecam (conforme solicitado pelo usuário!) */}
-              {layoutMode === 'split' && (
-                <div className="toggle-row">
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: '600' }}>Tem Facecam no clipe?</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      {camEnabled ? 'Cam posicionada no topo' : 'Sem câmera: exibe só a gameplay centralizada'}
-                    </span>
-                  </div>
-                  <label className="toggle-switch">
-                    <input 
-                      type="checkbox" 
-                      checked={camEnabled} 
-                      onChange={(e) => setCamEnabled(e.target.checked)} 
-                    />
-                    <span className="toggle-slider"></span>
-                  </label>
-                </div>
-              )}
-
-              {/* Slider de Altura da Câmera no modo Split */}
-              {layoutMode === 'split' && camEnabled && (
-                <div className="slider-group" style={{ marginBottom: '14px' }}>
-                  <div className="slider-label">
-                    <span>Espaço da Câmera no Topo</span>
-                    <span>{camHeightPercent}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="20" 
-                    max="50" 
-                    value={camHeightPercent}
-                    onChange={(e) => setCamHeightPercent(Number(e.target.value))}
-                    className="slider-input" 
-                  />
-                </div>
-              )}
-
-              {/* Estilo de Fundo nos Espaços Restantes */}
-              <div style={{ marginBottom: '14px' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: '600' }}>
-                  Fundo nos Espaços Restantes:
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <button 
-                    type="button"
-                    className={`button-tab ${bgStyle === 'blur' ? 'active' : ''}`}
-                    onClick={() => setBgStyle('blur')}
-                    style={{ fontSize: '0.76rem', padding: '8px 10px' }}
-                  >
-                    <Layers size={14} color="var(--accent-cyan)" /> Fundo Desfocado (Blur)
-                  </button>
-                  <button 
-                    type="button"
-                    className={`button-tab ${bgStyle === 'black' ? 'active' : ''}`}
-                    onClick={() => setBgStyle('black')}
-                    style={{ fontSize: '0.76rem', padding: '8px 10px' }}
-                  >
-                    Fundo Preto Sólido
-                  </button>
-                </div>
-              </div>
-
-
-              {/* Celular Mockup com Preview ao Vivo */}
+              {/* Celular Mockup com Preview ao Vivo - No Mobile fica sempre no topo */}
               <div className="phone-mockup-wrapper">
                 <div className={`phone-mockup phone-size-${phoneSize}`}>
                   <div className="phone-notch"></div>
@@ -1254,17 +1149,119 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Controles de Formato e Renderização (no mobile ficam na aba Modelos, no desktop aparecem sempre) */}
+              <div className={`preview-settings-block ${mobileActiveTab !== 'style' ? 'mobile-hide' : ''}`}>
+                <div style={{ marginBottom: '16px', marginTop: '12px' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '600' }}>
+                    Modelo de Enquadramento:
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                    <button 
+                      className={`button-tab ${layoutMode === 'split' ? 'active' : ''}`}
+                      onClick={() => setLayoutMode('split')}
+                    >
+                      <Layers size={14} /> Com Câmera (Split)
+                    </button>
+                    <button 
+                      className={`button-tab ${layoutMode === 'single_crop' ? 'active' : ''}`}
+                      onClick={() => setLayoutMode('single_crop')}
+                    >
+                      <Scissors size={14} /> Só Gameplay
+                    </button>
+                  </div>
+                  <button 
+                    className={`button-tab ${layoutMode === 'blur_fit' ? 'active' : ''}`}
+                    style={{ width: '100%', borderColor: layoutMode === 'blur_fit' ? 'var(--accent-cyan)' : 'var(--border-card)', marginBottom: '8px' }}
+                    onClick={() => setLayoutMode('blur_fit')}
+                  >
+                    <Layers size={14} color="var(--accent-cyan)" /> Estilo LoL (Com Fundo Desfocado)
+                  </button>
+                  <button 
+                    type="button"
+                    className="button-tab"
+                    style={{ width: '100%', background: 'rgba(79, 70, 229, 0.1)', borderColor: 'rgba(79, 70, 229, 0.4)', fontSize: '0.78rem', color: '#c7d2fe' }}
+                    onClick={applyDefaultLolShorts}
+                    title="Aplica 45% largura, 100% altura e Fundo Desfocado"
+                  >
+                    Padrão Shorts (Centralizado + Desfocado)
+                  </button>
+                </div>
 
-              {/* Botão de Renderização */}
-              <div style={{ marginTop: '20px' }}>
-                <button 
-                  className="btn-primary" 
-                  onClick={handleStartRender}
-                  disabled={renderStatus === 'queued' || renderStatus === 'processing'}
-                >
-                  <Download size={18} />
-                  Renderizar Clipe 9:16 (Full HD)
-                </button>
+                {/* Opção Facecam */}
+                {layoutMode === 'split' && (
+                  <div className="toggle-row">
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '600' }}>Tem Facecam no clipe?</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        {camEnabled ? 'Câmera no topo e gameplay no centro' : 'Sem câmera: exibe só a gameplay'}
+                      </span>
+                    </div>
+                    <label className="toggle-switch">
+                      <input 
+                        type="checkbox" 
+                        checked={camEnabled} 
+                        onChange={(e) => setCamEnabled(e.target.checked)} 
+                      />
+                      <span className="toggle-slider"></span>
+                    </label>
+                  </div>
+                )}
+
+                {/* Slider altura câmera */}
+                {layoutMode === 'split' && camEnabled && (
+                  <div className="slider-group" style={{ marginBottom: '14px' }}>
+                    <div className="slider-label">
+                      <span>Espaço da Câmera no Topo</span>
+                      <span>{camHeightPercent}%</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="20" 
+                      max="50" 
+                      value={camHeightPercent}
+                      onChange={(e) => setCamHeightPercent(Number(e.target.value))}
+                      className="slider-input" 
+                    />
+                  </div>
+                )}
+
+                {/* Estilo de fundo */}
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: '600' }}>
+                    Fundo nos Espaços Restantes:
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <button 
+                      type="button"
+                      className={`button-tab ${bgStyle === 'blur' ? 'active' : ''}`}
+                      onClick={() => setBgStyle('blur')}
+                      style={{ fontSize: '0.76rem', padding: '8px 10px' }}
+                    >
+                      <Layers size={14} color="var(--accent-cyan)" /> Fundo Desfocado
+                    </button>
+                    <button 
+                      type="button"
+                      className={`button-tab ${bgStyle === 'black' ? 'active' : ''}`}
+                      onClick={() => setBgStyle('black')}
+                      style={{ fontSize: '0.76rem', padding: '8px 10px' }}
+                    >
+                      Fundo Preto Sólido
+                    </button>
+                  </div>
+                </div>
+
+                {/* Botão de Renderização */}
+                <div style={{ marginTop: '16px' }}>
+                  <button 
+                    className="btn-primary" 
+                    onClick={handleStartRender}
+                    disabled={renderStatus === 'queued' || renderStatus === 'processing'}
+                  >
+                    <Download size={18} />
+                    Gerar Vídeo 9:16
+                  </button>
+                </div>
+              </div>
 
                 {/* Card de Download Persistente */}
                 {downloadUrl && (
@@ -1283,16 +1280,14 @@ export default function App() {
                       </button>
                     </div>
                     <div style={{ marginTop: '8px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      ⚡ Renderizado 100% no navegador via <code style={{ color: '#10b981' }}>FFmpeg WebAssembly</code>
+                      ⚡ Vídeo processado com sucesso em alta definição
                     </div>
                   </div>
                 )}
               </div>
 
             </div>
-          </div>
-        </>
-      )}
+        )}
       </main>
 
       {/* Modal de Progresso e Download */}
@@ -1305,10 +1300,10 @@ export default function App() {
                   <CheckCircle size={36} />
                 </div>
                 <h3 style={{ fontSize: '1.3rem', fontWeight: '800', marginBottom: '8px' }}>
-                  Clipe 9:16 Pronto para Download!
+                  Clipe Pronto para Download!
                 </h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '20px' }}>
-                  O vídeo foi renderizado em 1080x1920 (9:16 vertical), codificado em H.264 pronto para postar no TikTok, Reels ou Shorts sem distorção.
+                  Vídeo formatado em 9:16 vertical, pronto para postar direto no TikTok, Reels e Shorts.
                 </p>
 
                 {/* Player do resultado */}
@@ -1339,7 +1334,7 @@ export default function App() {
                   </button>
                 </div>
                 <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', background: 'rgba(255, 255, 255, 0.04)', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-card)' }}>
-                  🔒 <strong>Zero Upload:</strong> O vídeo foi processado 100% no seu dispositivo via WebAssembly.
+                  🔒 <strong>Vídeo Privado:</strong> Gerado no seu dispositivo sem envio para servidores externos.
                 </div>
               </>
             ) : renderStatus === 'failed' ? (
@@ -1351,7 +1346,7 @@ export default function App() {
                   Erro ao Processar o Vídeo
                 </h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '20px' }}>
-                  {renderError || 'Ocorreu um problema ao compilar com o FFmpeg.'}
+                  {renderError || 'Ocorreu um problema ao gerar o vídeo.'}
                 </p>
                 <button className="btn-primary" onClick={() => setRenderStatus(null)}>
                   Voltar e Tentar Novamente
@@ -1366,7 +1361,7 @@ export default function App() {
                   Renderizando seu Clipe em 9:16...
                 </h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>
-                  Processando enquadramentos e filtros via FFmpeg WebAssembly na sua máquina.
+                  Aplicando os enquadramentos e ajustando para o formato vertical.
                 </p>
                 <div className="progress-bar-bg">
                   <div className="progress-bar-fill" style={{ width: `${renderProgress}%` }}></div>
