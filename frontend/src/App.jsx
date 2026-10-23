@@ -58,7 +58,12 @@ export default function App() {
   const [folderNotice, setFolderNotice] = useState(null);
 
 
+  // Modos Mobile: switcher do player e aba ativa de controles
+  const [mobileViewMode, setMobileViewMode] = useState('result'); // 'result' (9:16) ou 'editor' (16:9)
+  const [mobileActiveTab, setMobileActiveTab] = useState('crop'); // 'crop' | 'trim' | 'motion' | 'export'
+
   // Tamanho do Preview do Celular: 'sm' (270px), 'md' (340px), 'lg' (410px)
+
   const [phoneSize, setPhoneSize] = useState('md');
 
   // Corte de Duração do Vídeo (Trim)
@@ -638,10 +643,61 @@ export default function App() {
 
           </div>
         ) : (
-          /* Workspace do Editor */
-          <div className="editor-workspace">
-            {/* Lado Esquerdo: Vídeo Original + Caixas de Ajuste Interativas */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <>
+            {/* Top Switcher Mobile: Alternar entre Ajuste 16:9 e Celular 9:16 */}
+            <div className="mobile-switcher-bar">
+              <button 
+                type="button"
+                className={`mobile-tab-btn ${mobileViewMode === 'editor' ? 'active' : ''}`}
+                onClick={() => setMobileViewMode('editor')}
+              >
+                <Film size={15} /> Ajustar Caixas (16:9)
+              </button>
+              <button 
+                type="button"
+                className={`mobile-tab-btn ${mobileViewMode === 'result' ? 'active' : ''}`}
+                onClick={() => setMobileViewMode('result')}
+              >
+                <Smartphone size={15} /> Ver Resultado (9:16)
+              </button>
+            </div>
+
+            {/* Abas Rápidas Mobile: Ferramentas estilo CapCut */}
+            <div className="mobile-tabs-nav">
+              <button 
+                type="button"
+                className={`mobile-tab-btn ${mobileActiveTab === 'crop' ? 'active' : ''}`}
+                onClick={() => { setMobileActiveTab('crop'); setMobileViewMode('editor'); }}
+              >
+                <Sliders size={14} /> Enquadrar
+              </button>
+              <button 
+                type="button"
+                className={`mobile-tab-btn ${mobileActiveTab === 'trim' ? 'active' : ''}`}
+                onClick={() => { setMobileActiveTab('trim'); setMobileViewMode('editor'); }}
+              >
+                <Scissors size={14} /> Cortar Tempo
+              </button>
+              <button 
+                type="button"
+                className={`mobile-tab-btn ${mobileActiveTab === 'motion' ? 'active' : ''}`}
+                onClick={() => { setMobileActiveTab('motion'); setMobileViewMode('editor'); }}
+              >
+                <Compass size={14} /> Movimento
+              </button>
+              <button 
+                type="button"
+                className={`mobile-tab-btn ${mobileActiveTab === 'export' ? 'active' : ''}`}
+                onClick={() => { setMobileActiveTab('export'); setMobileViewMode('result'); }}
+              >
+                <Download size={14} /> Exportar
+              </button>
+            </div>
+
+            {/* Workspace do Editor */}
+            <div className="editor-workspace">
+              {/* Lado Esquerdo: Vídeo Original + Caixas de Ajuste Interativas */}
+              <div className={`editor-left-col ${mobileViewMode !== 'editor' ? 'mobile-hide' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="panel">
                 <div className="panel-header">
                   <div className="panel-title">
@@ -759,7 +815,7 @@ export default function App() {
                 </div>
 
                 {/* Painel Dedicado de Corte do Vídeo (Trim Início e Fim) */}
-                <div className="trim-card">
+                <div className={`trim-card ${mobileActiveTab !== 'trim' ? 'mobile-hide' : ''}`}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', fontSize: '0.9rem', color: '#fff' }}>
                       <Scissors size={16} color="var(--accent-cyan)" />
@@ -784,7 +840,7 @@ export default function App() {
                   </div>
 
                   {/* Botões de marcação rápida e sliders */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="trim-points-grid">
                     <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-card)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Ponto de Início:</span>
@@ -842,7 +898,7 @@ export default function App() {
 
 
               {/* Controles de Ajuste Fino e Setinhas */}
-              <div className="panel">
+              <div className={`panel ${mobileActiveTab !== 'crop' ? 'mobile-hide' : ''}`}>
                 <div className="panel-header">
                   <div className="panel-title">
                     <Sliders size={18} color="var(--accent-cyan)" />
@@ -869,7 +925,7 @@ export default function App() {
                   )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: '20px', alignItems: 'center' }}>
+                <div className="dpad-layout-grid">
                   {/* Presets Rápidos e Sliders */}
                   <div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
@@ -986,7 +1042,7 @@ export default function App() {
               </div>
 
               {/* Painel de Câmera Dinâmica (Keyframes / Seguir Jogada) */}
-              <div className="panel">
+              <div className={`panel ${mobileActiveTab !== 'motion' ? 'mobile-hide' : ''}`}>
                 <div className="panel-header">
                   <div className="panel-title">
                     <Compass size={18} color="var(--accent-emerald)" />
@@ -1069,7 +1125,7 @@ export default function App() {
 
 
             {/* Lado Direito: Preview Vertical 9:16 (Simulador de Celular) */}
-            <div className="panel" style={{ position: 'sticky', top: '84px' }}>
+            <div className={`panel ${mobileViewMode !== 'result' ? 'mobile-hide' : ''}`} style={{ position: 'sticky', top: '84px' }}>
               <div className="panel-header">
                 <div className="panel-title">
                   <Smartphone size={18} color="#f43f5e" />
@@ -1259,7 +1315,8 @@ export default function App() {
 
             </div>
           </div>
-        )}
+        </>
+      )}
       </main>
 
       {/* Modal de Progresso e Download */}

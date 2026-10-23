@@ -667,3 +667,108 @@ input:checked + .toggle-slider:before {
   background: var(--primary);
   color: #fff;
 }
+
+/* =========================================
+   RESPONSIVIDADE: DESKTOP vs MOBILE STUDIO
+   ========================================= */
+.mobile-switcher-bar, 
+.mobile-tabs-nav {
+  display: none;
+}
+
+/* Layouts Responsivos Internos */
+.dpad-layout-grid {
+  display: grid;
+  grid-template-columns: 1fr 180px;
+  gap: 20px;
+  align-items: center;
+}
+
+.trim-points-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .dpad-layout-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 580px) {
+  .trim-points-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .editor-workspace > .panel {
+    position: static !important;
+  }
+
+  .mobile-switcher-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    width: 100%;
+  }
+
+  .mobile-switcher-bar .mobile-tab-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-card);
+  }
+
+  .mobile-switcher-bar .mobile-tab-btn.active {
+    background: var(--primary);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .mobile-tabs-nav {
+    display: flex;
+    gap: 6px;
+    margin: 12px 0;
+    width: 100%;
+    overflow-x: auto;
+    background: #181d2a;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-card);
+  }
+
+  .mobile-tab-btn {
+    flex: 1;
+    min-height: 44px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    white-space: nowrap;
+    padding: 6px 10px;
+    touch-action: manipulation;
+    transition: all 0.15s ease;
+  }
+
+  .mobile-tab-btn.active {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Esconde seção no mobile quando não estiver na aba ativa */
+  .mobile-hide {
+    display: none !important;
+  }
+}
+
+
+
